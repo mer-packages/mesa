@@ -111,29 +111,6 @@ llvmpipe_bind_sampler_states(struct pipe_context *pipe,
 
 
 static void
-llvmpipe_bind_fragment_sampler_states(struct pipe_context *pipe,
-                                      unsigned num, void **samplers)
-{
-   llvmpipe_bind_sampler_states(pipe, PIPE_SHADER_FRAGMENT, 0, num, samplers);
-}
-
-
-static void
-llvmpipe_bind_vertex_sampler_states(struct pipe_context *pipe,
-                                    unsigned num, void **samplers)
-{
-   llvmpipe_bind_sampler_states(pipe, PIPE_SHADER_VERTEX, 0, num, samplers);
-}
-
-
-static void
-llvmpipe_bind_geometry_sampler_states(struct pipe_context *pipe,
-                                      unsigned num, void **samplers)
-{
-   llvmpipe_bind_sampler_states(pipe, PIPE_SHADER_GEOMETRY, 0, num, samplers);
-}
-
-static void
 llvmpipe_set_sampler_views(struct pipe_context *pipe,
                            unsigned shader,
                            unsigned start,
@@ -159,6 +136,12 @@ llvmpipe_set_sampler_views(struct pipe_context *pipe,
 
    /* set the new sampler views */
    for (i = 0; i < num; i++) {
+      /* Note: we're using pipe_sampler_view_release() here to work around
+       * a possible crash when the old view belongs to another context that
+       * was already destroyed.
+       */
+      pipe_sampler_view_release(pipe,
+                                &llvmpipe->sampler_views[shader][start + i]);
       pipe_sampler_view_reference(&llvmpipe->sampler_views[shader][start + i],
                                   views[i]);
    }
@@ -181,32 +164,6 @@ llvmpipe_set_sampler_views(struct pipe_context *pipe,
    llvmpipe->dirty |= LP_NEW_SAMPLER_VIEW;
 }
 
-
-static void
-llvmpipe_set_fragment_sampler_views(struct pipe_context *pipe,
-                                    unsigned num,
-                                    struct pipe_sampler_view **views)
-{
-   llvmpipe_set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0, num, views);
-}
-
-
-static void
-llvmpipe_set_vertex_sampler_views(struct pipe_context *pipe,
-                                  unsigned num,
-                                  struct pipe_sampler_view **views)
-{
-   llvmpipe_set_sampler_views(pipe, PIPE_SHADER_VERTEX, 0, num, views);
-}
-
-
-static void
-llvmpipe_set_geometry_sampler_views(struct pipe_context *pipe,
-                                    unsigned num,
-                                    struct pipe_sampler_view **views)
-{
-   llvmpipe_set_sampler_views(pipe, PIPE_SHADER_GEOMETRY, 0, num, views);
-}
 
 static struct pipe_sampler_view *
 llvmpipe_create_sampler_view(struct pipe_context *pipe,
@@ -417,13 +374,9 @@ llvmpipe_init_sampler_funcs(struct llvmpipe_context *llvmpipe)
 {
    llvmpipe->pipe.create_sampler_state = llvmpipe_create_sampler_state;
 
-   llvmpipe->pipe.bind_fragment_sampler_states  = llvmpipe_bind_fragment_sampler_states;
-   llvmpipe->pipe.bind_vertex_sampler_states  = llvmpipe_bind_vertex_sampler_states;
-   llvmpipe->pipe.bind_geometry_sampler_states  = llvmpipe_bind_geometry_sampler_states;
-   llvmpipe->pipe.set_fragment_sampler_views = llvmpipe_set_fragment_sampler_views;
-   llvmpipe->pipe.set_vertex_sampler_views = llvmpipe_set_vertex_sampler_views;
-   llvmpipe->pipe.set_geometry_sampler_views = llvmpipe_set_geometry_sampler_views;
+   llvmpipe->pipe.bind_sampler_states = llvmpipe_bind_sampler_states;
    llvmpipe->pipe.create_sampler_view = llvmpipe_create_sampler_view;
+   llvmpipe->pipe.set_sampler_views = llvmpipe_set_sampler_views;
    llvmpipe->pipe.sampler_view_destroy = llvmpipe_sampler_view_destroy;
    llvmpipe->pipe.delete_sampler_state = llvmpipe_delete_sampler_state;
 }

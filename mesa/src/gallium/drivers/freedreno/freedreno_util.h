@@ -48,12 +48,19 @@ enum adreno_rb_blend_opcode fd_blend_func(unsigned func);
 enum adreno_pa_su_sc_draw fd_polygon_mode(unsigned mode);
 enum adreno_stencil_op fd_stencil_op(unsigned op);
 
+#define A3XX_MAX_MIP_LEVELS 14
+/* TBD if it is same on a2xx, but for now: */
+#define MAX_MIP_LEVELS A3XX_MAX_MIP_LEVELS
 
 #define FD_DBG_MSGS     0x01
 #define FD_DBG_DISASM   0x02
 #define FD_DBG_DCLEAR   0x04
 #define FD_DBG_DGMEM    0x08
 #define FD_DBG_DSCIS    0x10
+#define FD_DBG_DIRECT   0x20
+#define FD_DBG_DBYPASS  0x40
+#define FD_DBG_FRAGHALF 0x80
+
 extern int fd_mesa_debug;
 
 #define DBG(fmt, ...) \
@@ -91,6 +98,7 @@ pipe_surface_format(struct pipe_surface *psurf)
 
 #define LOG_DWORDS 0
 
+static inline void emit_marker(struct fd_ringbuffer *ring, int scratch_idx);
 
 static inline void
 OUT_RING(struct fd_ringbuffer *ring, uint32_t data)
@@ -162,12 +170,37 @@ OUT_PKT3(struct fd_ringbuffer *ring, uint8_t opcode, uint16_t cnt)
 }
 
 static inline void
+OUT_WFI(struct fd_ringbuffer *ring)
+{
+	OUT_PKT3(ring, CP_WAIT_FOR_IDLE, 1);
+	OUT_RING(ring, 0x00000000);
+}
+
+static inline void
 OUT_IB(struct fd_ringbuffer *ring, struct fd_ringmarker *start,
 		struct fd_ringmarker *end)
 {
+	/* for debug after a lock up, write a unique counter value
+	 * to scratch6 for each IB, to make it easier to match up
+	 * register dumps to cmdstream.  The combination of IB and
+	 * DRAW (scratch7) is enough to "triangulate" the particular
+	 * draw that caused lockup.
+	 */
+	emit_marker(ring, 6);
+
 	OUT_PKT3(ring, CP_INDIRECT_BUFFER_PFD, 2);
 	fd_ringbuffer_emit_reloc_ring(ring, start, end);
 	OUT_RING(ring, fd_ringmarker_dwords(start, end));
+
+	emit_marker(ring, 6);
+}
+
+static inline void
+emit_marker(struct fd_ringbuffer *ring, int scratch_idx)
+{
+	extern unsigned marker_cnt;
+	OUT_PKT0(ring, REG_AXXX_CP_SCRATCH_REG0 + scratch_idx, 1);
+	OUT_RING(ring, ++marker_cnt);
 }
 
 #endif /* FREEDRENO_UTIL_H_ */
