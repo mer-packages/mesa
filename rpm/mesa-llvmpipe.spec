@@ -1,6 +1,6 @@
 # Conditional building of X11 related things
 %bcond_with X11
-%define mesa_version 9.2.5
+%define mesa_version 10.0.3
 
 Name:       mesa-llvmpipe
 
@@ -238,11 +238,13 @@ Mesa libwayland-egl runtime libraries
     --enable-gallium-llvm \
     --with-gallium-drivers=swrast \
 %if %{with X11}
-    --with-egl-platforms=x11,fbdev,wayland \
+    --with-egl-platforms=x11,fbdev,wayland,drm \
     --with-x \
     --enable-glx-tls \
     --enable-glx=yes \
 %else
+    --disable-gbm \
+    --disable-gallium-gbm \
     --with-egl-platforms=fbdev,wayland \
     --disable-glx \
     --disable-xlib-glx \
@@ -251,7 +253,7 @@ Mesa libwayland-egl runtime libraries
     --enable-gles1=yes \
     --enable-gles2=yes
 
-make %{?jobs:-j%jobs}
+make %{?jobs:-j%jobs} V=1
 
 %install
 rm -rf %{buildroot}
@@ -387,12 +389,12 @@ popd
 
 %files dri-drivers-devel
 %defattr(-,root,root,-)
-%{_libdir}/libdricore%{mesa_version}.so
+#%{_libdir}/libdricore%{mesa_version}.so
 %{_libdir}/pkgconfig/dri.pc
 
 %files dri-swrast-driver
 %defattr(-,root,root,-)
-%{_libdir}/libdricore%{mesa_version}.so.*
+#%{_libdir}/libdricore%{mesa_version}.so.*
 %{_libdir}/dri/swrast_dri.so
 
 %files libwayland-egl-devel
