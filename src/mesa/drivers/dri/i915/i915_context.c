@@ -151,6 +151,7 @@ i915CreateContext(int api,
                   __DRIcontext * driContextPriv,
                   unsigned major_version,
                   unsigned minor_version,
+                  uint32_t flags,
                   unsigned *error,
                   void *sharedContextPrivate)
 {
@@ -168,7 +169,7 @@ i915CreateContext(int api,
 
    i915InitDriverFunctions(&functions);
 
-   if (!intelInitContext(intel, api, major_version, minor_version,
+   if (!intelInitContext(intel, api, major_version, minor_version, flags,
                          mesaVis, driContextPriv,
                          sharedContextPrivate, &functions,
                          error)) {
@@ -194,6 +195,8 @@ i915CreateContext(int api,
    ctx->Const.FragmentProgram.MaxTextureImageUnits = I915_TEX_UNITS;
    ctx->Const.MaxTextureCoordUnits = I915_TEX_UNITS;
    ctx->Const.MaxVarying = I915_TEX_UNITS;
+   ctx->Const.VertexProgram.MaxOutputComponents =
+      ctx->Const.FragmentProgram.MaxInputComponents = ctx->Const.MaxVarying * 4;
    ctx->Const.MaxCombinedTextureImageUnits =
       ctx->Const.VertexProgram.MaxTextureImageUnits +
       ctx->Const.FragmentProgram.MaxTextureImageUnits;

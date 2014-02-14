@@ -1,17 +1,30 @@
-# Already cherry picked without -x
-d8ac987f6ab228df1a478b36c3d889992754374f glsl: Disallow uniform block layout qualifiers on non-uniform block vars.
+# Since we've disabled DRI3 completely in 10.0, this commit is no longer
+# necessary.
+f0f202e6b764be803470e27cba9102f14361ae22 glx: conditionaly build dri3 and present loader (v3)
 
-# The bug fixed by this patch does not exist in 9.2.  Discussed with Marek and
-# Brian Paul on the mesa-stable mailing list.
-89a665eb5fa176f68223bf54a472d6a0567c3546 draw: fix segfaults with aaline and aapoint stages disabled
+# This patch makes bug #71870 worse, so it won't be cherry picked until that
+# issue can be resolved.  See
+# http://lists.freedesktop.org/archives/mesa-dev/2013-November/048899.html
+068a073c1d4853b5c8f33efdeb481026f42e23a5 meta: fix meta clear of layered framebuffers
 
-# Previously cherry picked (patch originally appeared twice on master with a
-# revert in between)
-4e5eb8ba25054ede4798fa424e6f32b23aba0f98 i965/vec4: Only zero out unused message components when there are any.
+# This patch isn't actually necessary because that bug that it fixes isn't in
+# the 10.0 branch.  See
+# http://lists.freedesktop.org/archives/mesa-stable/2013-December/000500.html
+a057b837ddd1c725a7504eedc53c6df05a012773 egl: add HAVE_LIBDRM define, fix EGL X11 platform
 
-# Backported as 7ab2b8c4c4607817c91946dcba943b29f1bd1895 but without "cherry
-# picked from" in commit message
-360a141f24a9d00891665b7fedb77ffb116944ca wayland: Don't rely on static variable for identifying wl_drm buffers
+# Author requested skipping due to regressions
+# Picking it would require at least also picking:
+# 73c3c7e3, 3e0e9e3b, c59a605c
+b2d1c579bb84a88179072a6a783f8827e218db55 glcpp: Set extension defines after resolving the GLSL version.
 
-# Code being fixed is not present in 9.2
-f278d49c4bcfedbda10cb224cb251e3755e88288 i965: Do not set bilinear_filter flag in case of multisample blits
+# These patches depend on other code not in stable branch.
+# (at least 3b22146dc714b6090f7423abbc4df53d7d1fdaa9)
+e190709119d8eb85c67bfbad5be699d39ad0118e mesa: Ensure that transform feedback refers to the correct program.
+43e77215b13b2f86e461cd8a62b542fc6854dd1c i965/gen7: Use to the correct program when uploading transform feedback state.
+
+# Author requested to ignore these four (since they depend on commits not in
+# stable).
+3313cc269bd428ca96a132d86da5fddc0f27386a i965: Add an option to ignore sample qualifier
+a92e5f7cf63d496ad7830b5cea4bbab287c25b8e i965: Use sample barycentric coordinates with per sample shading
+f5cfb4ae21df8eebfc6b86c0ce858b1c0a9160dd i965: Ignore 'centroid' interpolation qualifier in case of persample shading
+dc2f94bc786768329973403248820a2e5249f102 i965: Ignore 'centroid' interpolation qualifier in case of persample shading

@@ -32,10 +32,12 @@
 #include "brw_context.h"
 #include "brw_wm.h"
 #include "brw_state.h"
+#include "main/enums.h"
 #include "main/formats.h"
 #include "main/fbobject.h"
 #include "main/samplerobj.h"
 #include "program/prog_parameter.h"
+#include "program/program.h"
 
 #include "glsl/ralloc.h"
 
@@ -46,6 +48,7 @@
 static unsigned
 brw_compute_barycentric_interp_modes(struct brw_context *brw,
                                      bool shade_model_flat,
+                                     bool persample_shading,
                                      const struct gl_fragment_program *fprog)
 {
    unsigned barycentric_interp_modes = 0;
@@ -58,7 +61,9 @@ brw_compute_barycentric_interp_modes(struct brw_context *brw,
    for (attr = 0; attr < VARYING_SLOT_MAX; ++attr) {
       enum glsl_interp_qualifier interp_qualifier =
          fprog->InterpQualifier[attr];
-      bool is_centroid = fprog->IsCentroid & BITFIELD64_BIT(attr);
+      bool is_centroid = (fprog->IsCentroid & BITFIELD64_BIT(attr)) &&
+         !persample_shading;
+      bool is_sample = persample_shading;
       bool is_gl_Color = attr == VARYING_SLOT_COL0 || attr == VARYING_SLOT_COL1;
 
       /* Ignore unused inputs. */
@@ -79,8 +84,12 @@ brw_compute_barycentric_interp_modes(struct brw_context *brw,
          if (is_centroid) {
             barycentric_interp_modes |=
                1 << BRW_WM_NONPERSPECTIVE_CENTROID_BARYCENTRIC;
+         } else if (is_sample) {
+            barycentric_interp_modes |=
+               1 << BRW_WM_NONPERSPECTIVE_SAMPLE_BARYCENTRIC;
          }
-         if (!is_centroid || brw->needs_unlit_centroid_workaround) {
+         if ((!is_centroid && !is_sample) ||
+             brw->needs_unlit_centroid_workaround) {
             barycentric_interp_modes |=
                1 << BRW_WM_NONPERSPECTIVE_PIXEL_BARYCENTRIC;
          }
@@ -90,8 +99,12 @@ brw_compute_barycentric_interp_modes(struct brw_context *brw,
          if (is_centroid) {
             barycentric_interp_modes |=
                1 << BRW_WM_PERSPECTIVE_CENTROID_BARYCENTRIC;
+         } else if (is_sample) {
+            barycentric_interp_modes |=
+               1 << BRW_WM_PERSPECTIVE_SAMPLE_BARYCENTRIC;
          }
-         if (!is_centroid || brw->needs_unlit_centroid_workaround) {
+         if ((!is_centroid && !is_sample) ||
+             brw->needs_unlit_centroid_workaround) {
             barycentric_interp_modes |=
                1 << BRW_WM_PERSPECTIVE_PIXEL_BARYCENTRIC;
          }
@@ -102,13 +115,12 @@ brw_compute_barycentric_interp_modes(struct brw_context *brw,
 }
 
 bool
-brw_wm_prog_data_compare(const void *in_a, const void *in_b,
-                         int aux_size, const void *in_key)
+brw_wm_prog_data_compare(const void *in_a, const void *in_b)
 {
    const struct brw_wm_prog_data *a = in_a;
    const struct brw_wm_prog_data *b = in_b;
 
-   /* Compare all the struct up to the pointers. */
+   /* Compare all the struct (including the base) up to the pointers. */
    if (memcmp(a, b, offsetof(struct brw_wm_prog_data, param)))
       return false;
 
@@ -169,6 +181,7 @@ bool do_wm_prog(struct brw_context *brw,
 
    c->prog_data.barycentric_interp_modes =
       brw_compute_barycentric_interp_modes(brw, c->key.flat_shade,
+                                           c->key.persample_shading,
                                            &fp->program);
 
    program = brw_wm_fs_emit(brw, c, &fp->program, prog, &program_size);
@@ -183,7 +196,7 @@ bool do_wm_prog(struct brw_context *brw,
 
       c->prog_data.total_scratch = brw_get_scratch_size(c->last_scratch);
 
-      brw_get_scratch_bo(brw, &brw->wm.scratch_bo,
+      brw_get_scratch_bo(brw, &brw->wm.base.scratch_bo,
 			 c->prog_data.total_scratch * brw->max_wm_threads);
    }
 
@@ -194,7 +207,7 @@ bool do_wm_prog(struct brw_context *brw,
 		    &c->key, sizeof(c->key),
 		    program, program_size,
 		    &c->prog_data, sizeof(c->prog_data),
-		    &brw->wm.prog_offset, &brw->wm.prog_data);
+		    &brw->wm.base.prog_offset, &brw->wm.prog_data);
 
    ralloc_free(c);
 
@@ -233,6 +246,8 @@ brw_debug_recompile_sampler_key(struct brw_context *brw,
                       old_key->yuvtex_mask, key->yuvtex_mask);
    found |= key_debug(brw, "GL_MESA_ycbcr UV swapping\n",
                       old_key->yuvtex_swap_mask, key->yuvtex_swap_mask);
+   found |= key_debug(brw, "gather channel quirk on any texture unit",
+                      old_key->gather_channel_quirk_mask, key->gather_channel_quirk_mask);
 
    return found;
 }
@@ -302,11 +317,12 @@ brw_wm_debug_recompile(struct brw_context *brw,
 void
 brw_populate_sampler_prog_key_data(struct gl_context *ctx,
 				   const struct gl_program *prog,
+                                   unsigned sampler_count,
 				   struct brw_sampler_prog_key_data *key)
 {
    struct brw_context *brw = brw_context(ctx);
 
-   for (int s = 0; s < MAX_SAMPLERS; s++) {
+   for (int s = 0; s < sampler_count; s++) {
       key->swizzles[s] = SWIZZLE_NOOP;
 
       if (!(prog->SamplersUsed & (1 << s)))
@@ -345,6 +361,13 @@ brw_populate_sampler_prog_key_data(struct gl_context *ctx,
 	    if (sampler->WrapR == GL_CLAMP)
 	       key->gl_clamp_mask[2] |= 1 << s;
 	 }
+
+         /* gather4's channel select for green from RG32F is broken;
+          * requires a shader w/a on IVB; fixable with just SCS on HSW. */
+         if (brw->gen >= 7 && !brw->is_haswell && prog->UsesGather) {
+            if (img->InternalFormat == GL_RG32F)
+               key->gather_channel_quirk_mask |= 1 << s;
+         }
       }
    }
 }
@@ -360,6 +383,7 @@ static void brw_wm_populate_key( struct brw_context *brw,
    GLuint lookup = 0;
    GLuint line_aa;
    bool program_uses_dfdy = fp->program.UsesDFdy;
+   bool multisample_fbo = ctx->DrawBuffer->Visual.samples > 1;
 
    memset(key, 0, sizeof(*key));
 
@@ -419,6 +443,15 @@ static void brw_wm_populate_key( struct brw_context *brw,
 
    key->line_aa = line_aa;
 
+   /* _NEW_HINT */
+   if (brw->disable_derivative_optimization) {
+      key->high_quality_derivatives =
+         ctx->Hint.FragmentShaderDerivative != GL_FASTEST;
+   } else {
+      key->high_quality_derivatives =
+         ctx->Hint.FragmentShaderDerivative == GL_NICEST;
+   }
+
    if (brw->gen < 6)
       key->stats_wm = brw->stats_wm;
 
@@ -429,7 +462,8 @@ static void brw_wm_populate_key( struct brw_context *brw,
    key->clamp_fragment_color = ctx->Color._ClampFragmentColor;
 
    /* _NEW_TEXTURE */
-   brw_populate_sampler_prog_key_data(ctx, prog, &key->tex);
+   brw_populate_sampler_prog_key_data(ctx, prog, brw->wm.base.sampler_count,
+                                      &key->tex);
 
    /* _NEW_BUFFERS */
    /*
@@ -467,8 +501,22 @@ static void brw_wm_populate_key( struct brw_context *brw,
    key->replicate_alpha = ctx->DrawBuffer->_NumColorDrawBuffers > 1 &&
       (ctx->Multisample.SampleAlphaToCoverage || ctx->Color.AlphaEnabled);
 
+   /* _NEW_BUFFERS _NEW_MULTISAMPLE */
+   key->persample_shading =
+      _mesa_get_min_invocations_per_fragment(ctx, &fp->program) > 1;
+
+   key->compute_pos_offset =
+      _mesa_get_min_invocations_per_fragment(ctx, &fp->program) > 1 &&
+      fp->program.Base.SystemValuesRead & SYSTEM_BIT_SAMPLE_POS;
+
+   key->compute_sample_id =
+      multisample_fbo &&
+      ctx->Multisample.Enabled &&
+      (fp->program.Base.SystemValuesRead & SYSTEM_BIT_SAMPLE_ID);
+
    /* BRW_NEW_VUE_MAP_GEOM_OUT */
-   if (brw->gen < 6)
+   if (brw->gen < 6 || _mesa_bitcount_64(fp->program.Base.InputsRead &
+                                         BRW_FS_VARYING_INPUT_MASK) > 16)
       key->input_slots_valid = brw->vue_map_geom_out.slots_valid;
 
 
@@ -500,12 +548,13 @@ brw_upload_wm_prog(struct brw_context *brw)
 
    if (!brw_search_cache(&brw->cache, BRW_WM_PROG,
 			 &key, sizeof(key),
-			 &brw->wm.prog_offset, &brw->wm.prog_data)) {
+			 &brw->wm.base.prog_offset, &brw->wm.prog_data)) {
       bool success = do_wm_prog(brw, ctx->Shader._CurrentFragmentProgram, fp,
 				&key);
       (void) success;
       assert(success);
    }
+   brw->wm.base.prog_data = &brw->wm.prog_data->base;
 }
 
 
@@ -516,6 +565,7 @@ const struct brw_tracked_state brw_wm_prog = {
 		_NEW_STENCIL |
 		_NEW_POLYGON |
 		_NEW_LINE |
+		_NEW_HINT |
 		_NEW_LIGHT |
 		_NEW_FRAG_CLAMP |
 		_NEW_BUFFERS |

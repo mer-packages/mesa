@@ -310,6 +310,11 @@ control_line:
 			_glcpp_parser_expand_and_lex_from (parser,
 							   ELIF_EXPANDED, $2);
 		}
+		else if (parser->skip_stack &&
+		    parser->skip_stack->has_else)
+		{
+			glcpp_error(& @1, parser, "#elif after #else");
+		}
 		else
 		{
 			_glcpp_parser_skip_stack_change_if (parser, & @1,
@@ -324,6 +329,11 @@ control_line:
 		{
 			glcpp_error(& @1, parser, "#elif with no expression");
 		}
+		else if (parser->skip_stack &&
+		    parser->skip_stack->has_else)
+		{
+			glcpp_error(& @1, parser, "#elif after #else");
+		}
 		else
 		{
 			_glcpp_parser_skip_stack_change_if (parser, & @1,
@@ -332,7 +342,17 @@ control_line:
 		}
 	}
 |	HASH_ELSE {
-		_glcpp_parser_skip_stack_change_if (parser, & @1, "else", 1);
+		if (parser->skip_stack &&
+		    parser->skip_stack->has_else)
+		{
+			glcpp_error(& @1, parser, "multiple #else");
+		}
+		else
+		{
+			_glcpp_parser_skip_stack_change_if (parser, & @1, "else", 1);
+			if (parser->skip_stack)
+				parser->skip_stack->has_else = true;
+		}
 	} NEWLINE
 |	HASH_ENDIF {
 		_glcpp_parser_skip_stack_pop (parser, & @1);
@@ -1234,6 +1254,9 @@ glcpp_parser_create (const struct gl_extensions *extensions, int api)
 	      if (extensions->ARB_texture_multisample)
 	         add_builtin_define(parser, "GL_ARB_texture_multisample", 1);
 
+              if (extensions->ARB_texture_query_levels)
+                 add_builtin_define(parser, "GL_ARB_texture_query_levels", 1);
+
 	      if (extensions->ARB_texture_query_lod)
 	         add_builtin_define(parser, "GL_ARB_texture_query_lod", 1);
 
@@ -1245,7 +1268,21 @@ glcpp_parser_create (const struct gl_extensions *extensions, int api)
 
 	      if (extensions->ARB_shading_language_420pack)
 	         add_builtin_define(parser, "GL_ARB_shading_language_420pack", 1);
+
+	      if (extensions->ARB_sample_shading)
+	         add_builtin_define(parser, "GL_ARB_sample_shading", 1);
+
+	      if (extensions->ARB_texture_gather)
+	         add_builtin_define(parser, "GL_ARB_texture_gather", 1);
+
+	      if (extensions->ARB_shader_atomic_counters)
+	         add_builtin_define(parser, "GL_ARB_shader_atomic_counters", 1);
 	   }
+	}
+
+	if (extensions != NULL) {
+	   if (extensions->EXT_shader_integer_mix)
+	      add_builtin_define(parser, "GL_EXT_shader_integer_mix", 1);
 	}
 
 	language_version = 110;
@@ -2009,6 +2046,7 @@ _glcpp_parser_skip_stack_push_if (glcpp_parser_t *parser, YYLTYPE *loc,
 		node->type = SKIP_TO_ENDIF;
 	}
 
+	node->has_else = false;
 	node->next = parser->skip_stack;
 	parser->skip_stack = node;
 }

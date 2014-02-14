@@ -29,6 +29,7 @@
 
 #include "util/u_memory.h"
 #include "util/u_debug.h"
+#include "util/u_format.h"
 #include "util/u_sampler.h"
 
 #include "vdpau_private.h"
@@ -71,6 +72,11 @@ vdp_imp_device_create_x11(Display *display, int screen, VdpDevice *device,
       goto no_context;
    }
 
+   if (!pscreen->get_param(pscreen, PIPE_CAP_NPOT_TEXTURES)) {
+      ret = VDP_STATUS_NO_IMPLEMENTATION;
+      goto no_context;
+   }
+
    *device = vlAddDataHTAB(dev);
    if (*device == 0) {
       ret = VDP_STATUS_ERROR;
@@ -85,6 +91,7 @@ vdp_imp_device_create_x11(Display *display, int screen, VdpDevice *device,
    return VDP_STATUS_OK;
 
 no_handle:
+   dev->context->destroy(dev->context);
    /* Destroy vscreen */
 no_context:
    vl_screen_destroy(dev->vscreen);
